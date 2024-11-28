@@ -10,9 +10,10 @@ def crear_base_datos():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS carros (
             placa TEXT PRIMARY KEY,
-            hora_entrada TEXT,
+            hora_entrada TEXT,  
             hora_salida TEXT,
-            total_pago REAL
+            total_pago REAL,
+            puesto INTEGER
         )
     ''')
     cursor.execute('''
@@ -52,7 +53,7 @@ def registrar_carro():
     if puesto:
         puesto_numero = puesto[0]
         try:
-            cursor.execute("INSERT INTO carros (placa, hora_entrada) VALUES (?, ?)", (placa, hora_entrada))
+            cursor.execute("INSERT INTO carros (placa, hora_entrada, puesto) VALUES (?, ?, ?)", (placa, hora_entrada, puesto_numero))
             cursor.execute("UPDATE puestos SET ocupado = 1 WHERE numero = ?", (puesto_numero,))
             conn.commit()
             messagebox.showinfo("Registro Exitoso", f"Carro {placa} registrado en el puesto {puesto_numero}. Hora de entrada: {hora_entrada}.")
@@ -90,10 +91,10 @@ def mostrar_datos():
     texto.pack(padx=10, pady=10)
 
     texto.insert("end", "Tabla de Carros Registrados:\n")
-    texto.insert("end", "Placa\tHora Entrada\tHora Salida\tTotal Pago\n")
+    texto.insert("end", "Placa\tHora Entrada\tHora Salida\tTotal Pago\tPuesto\n")
     texto.insert("end", "-" * 60 + "\n")
     for carro in carros:
-        texto.insert("end", f"{carro[0]}\t{carro[1]}\t{carro[2] if carro[2] else 'N/A'}\t{carro[3] if carro[3] else 'N/A'}\n")
+        texto.insert("end", f"{carro[0]}\t{carro[1]}\t{carro[2] if carro[2] else 'N/A'}\t{carro[3] if carro[3] else 'N/A'}\t{carro[4]}\n")
 
     texto.insert("end", "\n")
 
@@ -124,6 +125,11 @@ def cobrar_salida():
         conn.close()
         return
 
+    if carro[2]:  # Si la columna `hora_salida` no es NULL
+        messagebox.showinfo("Salida Ya Registrada", "El carro ya salió del parqueadero.")
+        conn.close()
+        return
+
     hora_salida = simpledialog.askstring("Hora de Salida", "Ingrese la hora de salida (HH:MM):")
     if not hora_salida:
         return
@@ -148,16 +154,7 @@ def cobrar_salida():
     cursor.execute("UPDATE carros SET hora_salida = ?, total_pago = ? WHERE placa = ?", (hora_salida.strftime("%H:%M"), total_pago, placa))
 
     # Liberar el puesto ocupado
-    cursor.execute("""
-        UPDATE puestos 
-        SET ocupado = 0 
-        WHERE numero = (
-            SELECT numero FROM puestos 
-            WHERE ocupado = 1 
-            AND numero = (SELECT numero FROM carros WHERE placa = ?)
-        )
-    """, (placa,))
-    
+    cursor.execute("UPDATE puestos SET ocupado = 0 WHERE numero = ?", (carro[4],))
     conn.commit()
 
     factura = f"""
@@ -174,8 +171,28 @@ def cobrar_salida():
     """
 
     messagebox.showinfo("Factura Generada", factura)
+    conn.close()
+
+# Función para ver los ingresos totales
+def ver_ingresos_totales():
+    clave = simpledialog.askstring("Contraseña", "Ingrese la contraseña de administrador:", show="*")
+    if clave != "admin123":
+        messagebox.showerror("Acceso Denegado", "Contraseña incorrecta.")
+        return
+
+    conn = sqlite3.connect("parqueadero.db")
+    cursor = conn.cursor()
+
+    # Consultar la suma de los ingresos totales
+    cursor.execute("SELECT SUM(total_pago) FROM carros WHERE total_pago IS NOT NULL")
+    total_ingresos = cursor.fetchone()[0]  # Devuelve el valor de la suma, o None si no hay registros
 
     conn.close()
+
+    if total_ingresos is None:  # Si no hay ingresos registrados
+        total_ingresos = 0
+
+    messagebox.showinfo("Ingresos Totales", f"Los ingresos totales del parqueadero son: {total_ingresos} COP")
 
 # Crear la base de datos y las tablas al iniciar
 crear_base_datos()
@@ -183,7 +200,7 @@ crear_base_datos()
 # Interfaz gráfica principal
 root = tk.Tk()
 root.title("Administración de Parqueadero YESYU")
-root.geometry("400x300")
+root.geometry("400x400")
 root.config(bg="#b0e0e6")
 
 # Títulos y etiquetas
@@ -200,4 +217,8 @@ btn_ver_datos.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
 btn_cobrar = tk.Button(root, text="Cobrar Salida", command=cobrar_salida, font=("Arial", 12), bg="#FF5722", fg="white", relief="raised", bd=5)
 btn_cobrar.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
 
+btn_ingresos = tk.Button(root, text="Ver Ingresos Totales", command=ver_ingresos_totales, font=("Arial", 12), bg="#FFC107", fg="black", relief="raised", bd=5)
+btn_ingresos.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
+
+# Iniciar la aplicación
 root.mainloop()
